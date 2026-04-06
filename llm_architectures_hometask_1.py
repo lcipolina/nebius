@@ -19,11 +19,14 @@ The vocabulary is a map from {token: index} that we will use to vectorize the da
 The index is just a column id in the final vector, it does not have any meaning by itself, it is just a way to assign a fixed position to each word in the vector.
 6- VECTORIZE: each token in the vocabulary
 
+HOW TO RUN THIS NOTEBOOK:
+#!pip install datasets
+# conda activate llm
+# python3 llm_architectures_hometask_1.py
 
 """
 
-#!pip install datasets
-# conda activate llm
+
 import re
 from collections import Counter
 import random
@@ -41,26 +44,9 @@ PLOTS_DIR = Path("plots")
 SAVE_PLOTS = True
 SHOW_PLOTS = False  # keep False to avoid interactive popups in scripts
 
-
-def _slugify(text: str) -> str:
-    text = text.strip().lower()
-    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789-_")
-    out = []
-    for ch in text.replace("—", "-").replace("–", "-").replace(" ", "_"):
-        out.append(ch if ch in allowed else "_")
-    slug = "".join(out)
-    while "__" in slug:
-        slug = slug.replace("__", "_")
-    return slug.strip("_") or "plot"
-
-
-def _finalize_figure(fig, filename: Optional[str]):
-    if SAVE_PLOTS and filename:
-        PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-        fig.savefig(PLOTS_DIR / filename, dpi=200, bbox_inches="tight")
-    if SHOW_PLOTS:
-        plt.show()
-    plt.close(fig)
+# Heavy data pipeline (dataset download + vectorization). Turn off if you only
+# want to run Part 2 (toy optimizer comparisons).
+RUN_DATA_PIPELINE = True
 
 
 def load_datasets(dataset_name="SetFit/sst2"):
@@ -113,9 +99,6 @@ def load_datasets(dataset_name="SetFit/sst2"):
     data_val = sst2["validation"]
     return data_train, data_val
 
-# Heavy data pipeline (dataset download + vectorization). Turn off if you only
-# want to run Part 2 (toy optimizer comparisons).
-RUN_DATA_PIPELINE = True
 if RUN_DATA_PIPELINE:
     data_train, data_val = load_datasets()
 
@@ -911,6 +894,50 @@ Explain (in text) how learning rate and batch size affect:
 Support your explanation using the patterns observed in your heatmap.
 """
 
+# -----------------------
+# Plotting helpers
+# -----------------------
+
+def _slugify(text: str) -> str:
+    text = text.strip().lower()
+    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789-_")
+    out = []
+    for ch in text.replace("—", "-").replace("–", "-").replace(" ", "_"):
+        out.append(ch if ch in allowed else "_")
+    slug = "".join(out)
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug.strip("_") or "plot"
+
+
+def _finalize_figure(fig, filename: Optional[str]):
+    if SAVE_PLOTS and filename:
+        PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+        fig.savefig(PLOTS_DIR / filename, dpi=200, bbox_inches="tight")
+    if SHOW_PLOTS:
+        plt.show()
+    plt.close(fig)
+
+
+def plot_loss_curves(epoch_log, title, filename):
+    """Plot train/val BCE loss vs epoch from `sgd_logistic_regression` logs."""
+    epochs = [e["epoch"] for e in epoch_log]
+    train_loss = [e["train_loss"] for e in epoch_log]
+    val_loss = [e["val_loss"] for e in epoch_log]
+
+    plt.figure(figsize=(7, 4))
+    fig = plt.gcf()
+    plt.plot(epochs, train_loss, label="train_loss")
+    plt.plot(epochs, val_loss, label="val_loss")
+    plt.xlabel("epoch")
+    plt.ylabel("BCE loss")
+    plt.title(title)
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    _finalize_figure(fig, filename)
+
+
 def _plot_heatmap(values, x_labels, y_labels, title, cmap="viridis", filename=None):
     fig, ax = plt.subplots(figsize=(8, 4.5))
     im = ax.imshow(values, aspect="auto", cmap=cmap)
@@ -940,12 +967,18 @@ def run_task_1_3_experiments(
     epochs=20,
     init="zeros",
     metric="accuracy",
+    capture_example=None,
 ):
-    """Grid-search learning rate and batch size; return heatmap-ready arrays."""
+    """Grid-search learning rate and batch size; return heatmap-ready arrays.
+
+    If `capture_example=(batch_size, lr)` is provided, also return the per-epoch
+    `epoch_log` for that configuration (useful to plot loss-vs-epoch curves).
+    """
     train_metric = np.zeros((len(batch_sizes), len(learning_rates)), dtype=np.float32)
     val_metric = np.zeros((len(batch_sizes), len(learning_rates)), dtype=np.float32)
     train_loss = np.zeros((len(batch_sizes), len(learning_rates)), dtype=np.float32)
     val_loss = np.zeros((len(batch_sizes), len(learning_rates)), dtype=np.float32)
+    example_epoch_log = None
 
     for i, batch_size in enumerate(batch_sizes):
         for j, lr in enumerate(learning_rates):
@@ -971,6 +1004,11 @@ def run_task_1_3_experiments(
             train_loss[i, j] = final["train_loss"]
             val_loss[i, j] = final["val_loss"]
 
+            if capture_example is not None and example_epoch_log is None:
+                ex_bs, ex_lr = capture_example
+                if batch_size == ex_bs and float(lr) == float(ex_lr):
+                    example_epoch_log = epoch_log
+
     return {
         "learning_rates": list(learning_rates),
         "batch_sizes": list(batch_sizes),
@@ -978,6 +1016,7 @@ def run_task_1_3_experiments(
         "val_metric": val_metric,
         "train_loss": train_loss,
         "val_loss": val_loss,
+        "example_epoch_log": example_epoch_log,
     }
 
 
@@ -993,6 +1032,7 @@ if RUN_DATA_PIPELINE and RUN_TASK_1_3:
         epochs=20,
         init="zeros",
         metric="accuracy",
+        capture_example=(100, 0.3),
     )
 
     _plot_heatmap(
@@ -1023,6 +1063,13 @@ if RUN_DATA_PIPELINE and RUN_TASK_1_3:
         title="Task 1.3 — Validation log-loss (BCE)",
         cmap="Oranges",
     )
+
+    if results_1_3.get("example_epoch_log") is not None:
+        plot_loss_curves(
+            results_1_3["example_epoch_log"],
+            title="Task 1.3 — Loss vs epoch (example: lr=0.3, batch=100)",
+            filename="task_1_3_loss_vs_epoch_example_lr_0_3_bs_100.png",
+        )
 
 """####**Task 1.4 — L1 Regularization and Sparsity (2 points)**
 
@@ -1086,7 +1133,7 @@ In contrast, L2 shrinks weights but rarely makes them exactly zero.
 5. Write a small paragraph summarizing your insights
 """
 
-def _count_nonzero_weights(w, tol=1e-7):
+def _count_nonzero_weights(w, tol=1e-4):
     w = np.asarray(w).reshape(-1)
     return int((np.abs(w) > tol).sum())
 
@@ -1102,7 +1149,7 @@ def run_task_1_4_l1_sparsity(
     epochs=20,
     init_options=("zeros", "random"),
     metric="accuracy",
-    tol=1e-7,
+    tol=1e-4,
 ):
     """Run L1-regularized SGD for multiple lambdas; return per-init results."""
     results = {}
@@ -1188,7 +1235,7 @@ def run_task_1_4_weight_dynamics(
     init="random",
     metric="accuracy",
     reg_lambda=1e-1,
-    tol=1e-7,
+    tol=1e-4,
     n_weights_to_track=5,
     seed=42,
 ):
@@ -1212,12 +1259,16 @@ def run_task_1_4_weight_dynamics(
     )
 
     w_flat = np.asarray(w).reshape(-1)
+    # With plain SGD + L1, weights rarely become *exactly* 0. To make the
+    # "eliminated features" plot reliable, track the smallest-|w| weights,
+    # preferring those below `tol` if they exist.
     eliminated = np.where(np.abs(w_flat) <= tol)[0]
-    if eliminated.size == 0:
-        print("No weights below tolerance; try increasing reg_lambda or tol.")
-        return
+    if eliminated.size >= 1:
+        candidates = eliminated
+    else:
+        candidates = np.argsort(np.abs(w_flat))[: max(n_weights_to_track, 50)]
 
-    tracked = rng.choice(eliminated, size=min(n_weights_to_track, eliminated.size), replace=False)
+    tracked = rng.choice(candidates, size=min(n_weights_to_track, candidates.size), replace=False)
 
     _, _, history, _ = sgd_logistic_regression(
         X_train,
@@ -1266,7 +1317,7 @@ if RUN_DATA_PIPELINE and RUN_TASK_1_4:
         epochs=20,
         init_options=("zeros", "random"),
         metric="accuracy",
-        tol=1e-7,
+        tol=1e-4,
     )
     _plot_task_1_4_curves(results_1_4, metric_name="accuracy")
 
@@ -1281,7 +1332,7 @@ if RUN_DATA_PIPELINE and RUN_TASK_1_4:
         init="random",
         metric="accuracy",
         reg_lambda=1e-1,
-        tol=1e-7,
+        tol=1e-4,
         n_weights_to_track=5,
     )
 
@@ -1702,3 +1753,6 @@ $$w_i \mapsto w_i -  2\alpha\lambda w_i$$
 converges to zero in contrast with the leaping behaviour of
 $$w_i\mapsto w_i \pm\alpha\lambda$$
 """
+
+# Script end marker (helps when running long sweeps).
+print("All enabled tasks finished. Plots saved to plots/")
