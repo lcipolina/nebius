@@ -34,13 +34,12 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional
 
-# Plot output
-PLOTS_DIR = Path("plots")
+# Plot output (always next to this script, regardless of current working directory)
+PLOTS_DIR = Path(__file__).resolve().parent / "plots"
 SAVE_PLOTS = True
 SHOW_PLOTS = False  # keep False to avoid interactive popups in scripts
 
@@ -101,6 +100,7 @@ def load_datasets(dataset_name="SetFit/sst2"):
 
 if RUN_DATA_PIPELINE:
     data_train, data_val = load_datasets()
+
 
 """**Text Cleaning**
 
@@ -213,6 +213,7 @@ Bag-of-Words pipeline summary (conceptual + implementation choices):
 1) tokenize(text): sentence -> convert to list of words (we call them tokens).
 2) build_vocabulary(data): count token frequencies with Counter (hash map),
   keep top_k words, map each word to a fixed index: word -> column id.
+
 EXAMPLE of what we are doing here:
 Cleaned sentence:
 i liked this movie, this is good!
@@ -332,9 +333,11 @@ def tokenize(text):
 
 '''
 
-# 3) convert_text_to_vec(text, vocab): build a fixed-length count vector
+# NEXT STEPS:
+# - convert_text_to_vec(text, vocab): build a fixed-length count vector
 #    (histogram) where each position stores the token frequency in the text.
-# 4) dataset_to_vec(data, vocab): apply step (3) to all texts and stack rows
+#
+# - dataset_to_vec(data, vocab): apply step (3) to all texts and stack rows
 #    into a 2D feature matrix for model training.
 #
 # Important: this representation is order-invariant ("bag"), so it captures
@@ -656,10 +659,10 @@ For each batch you do: forward → loss → backward → update.
 So the structure is:
 
 for epoch in epochs:
-shuffle training data
-for each batch:
-update weights using only that batch
-That’s “mini-batch SGD.”
+    shuffle training data
+    for each batch:
+    update weights using only that batch
+    That’s “mini-batch SGD.”
 
 
 '''
